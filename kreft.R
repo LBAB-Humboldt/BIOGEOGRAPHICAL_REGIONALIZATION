@@ -130,7 +130,7 @@ mascara=paramos ### define para que area se va ha realizar el analisis
 extent=extent(colombia)
 #area de estucio
 orobioma=raster("C:/Users/GIC 9/Google Drive/Scripts & Bdatos/predictors/alt.asc") 
-factor=8
+factor=10
 aoi=aggregate(orobioma,factor)
 aoi=mask(aoi,mascara)
 
@@ -141,8 +141,8 @@ aoi=mask(aoi,mascara)
 # ### 2. ESAMBLE DE MODELOS -----------------------------------------------
 
 setwd(ruta_modelos)
-MODELOS<-stack(list.files(pattern="*.grd$"))
-nombres=list.files(pattern="*.grd$")
+MODELOS<-stack(list.files(pattern="*10p_cut.grd$"))
+nombres=list.files(pattern="*10p_cut.grd$")
 nombres=as.data.frame(strsplit(nombres,"_"))
 nombres=as.data.frame(t(nombres))
 nombres2=paste(nombres$V1,nombres$V2,sep="_")
@@ -214,63 +214,25 @@ grilla=aoi
 names(grilla)="grilla"
 grilla[1:ncell(grilla)]<-1:ncell(grilla)
 
-alfa=sum(MODELOS2)
 
-writeRaster(alfa,"alfa",overwrite=TRUE, format="GTiff")
+#### subir shp de mapas especies adicionales
+## INVEMAR
 
-#### GAMA
-GAMA=grilla3
-for(d in 1:nlayers(MODELOS2)){
-  print(d)  
-  modelo=MODELOS2[[d]]
-  agragar=aggregate(modelo,factor)
-  CAPA=resample(agragar,aoi)
-  GAMA=addLayer(GAMA,CAPA)
-}
-
-GAMA=GAMA[[-1]]
-GAMAtab=as.data.frame(rowSums(DF))
-GAMA[as.integer(row.names(GAMAtab))]<-GAMAtab[,ncol(GAMAtab)]
-GAMA[GAMA>max(GAMAtab[,1])]=NA
-
-ALFA=aggregate(alfa,factor,fun=mean)
-ALFA2=resample(ALFA,GAMA,method="bilinear")
-# BETA MULTIPLICATIVA
-BETAm=(GAMA/ALFA)
-BETAm[BETAm>2]=2
-plot(BETAm)
-
-## BETA ADITIVA
-BETAa=GAMA-ALFA2
-plot(BETAa)
-
-
-## BETA EFECTIVE TURNOVER
-BETAmt=(GAMA-ALFA2)/ALFA2
-plot(BETAmt)
-
-## BETA EFECTIVE TURNOVER
-BETAmg=(GAMA-ALFA2)/GAMA
-plot(BETAmg)
-
-
-writeRaster(ALFA,"ALFA",overwrite=TRUE)
-writeRaster(BETAm,"BETAm.tif",overwrite=TRUE)
-writeRaster(BETAa,"BETAa.tif",overwrite=TRUE)
-writeRaster(BETAmg,"BETAmg.tif",overwrite=TRUE)
+##UICN 
 
 # #### 3. MATRIZ DE DISTANCIAS --------------------------------------------
 setwd(ruta_salida)
 
 
-
-
 #GENERAR TABLA 
 #DF=as.data.frame(MODELOS2)
 
+## NOTA , DF lo va ha hacer jorge 
+
+
 #remuestrear a un factor  determinado (factor)
-DF=as.data.frame(matrix(NA,45933,1))
-length(na.omit(getValues(aoi)))
+DF=as.data.frame(matrix(NA,45933,1)) # cambiar el numero de filas 
+length((getValues(aoi)))
 
 for(i in 1:nlayers(MODELOS2)){
   DF[,i+1]=NA
@@ -308,7 +270,57 @@ names(DF)=nombrestodos
 DISTAN=betadiver(DF, "sim")
 distancia=as.matrix(DISTAN)
 
-# #### 4. VISUALIZACION GEOGRAFICA  RECAMBIO  -----------------------------
+
+# ##########. 3 PATRONES DIVERSIDAD ALFA, GAMA, BETA ----------------------
+
+
+##### ALFA 
+setwd(ruta_salida)
+alfa=sum(MODELOS2)
+writeRaster(alfa,"alfa",overwrite=TRUE, format="GTiff")
+
+#### GAMA
+GAMA=grilla3
+for(d in 1:nlayers(MODELOS2)){
+  print(d)  
+  modelo=MODELOS2[[d]]
+  agragar=aggregate(modelo,factor)
+  CAPA=resample(agragar,aoi)
+  GAMA=addLayer(GAMA,CAPA)
+}
+
+GAMA=GAMA[[-1]]
+GAMAtab=as.data.frame(rowSums(DF))
+GAMA[as.integer(row.names(GAMAtab))]<-GAMAtab[,ncol(GAMAtab)]
+GAMA[GAMA>max(GAMAtab[,1])]=NA
+
+ALFA=aggregate(alfa,factor,fun=mean)
+ALFA2=resample(ALFA,GAMA,method="bilinear")
+# BETA MULTIPLICATIVA
+BETAm=(GAMA/ALFA)
+#BETAm[BETAm>2]=2
+plot(BETAm)
+
+## BETA ADITIVA
+BETAa=GAMA-ALFA2
+plot(BETAa)
+
+
+## BETA EFECTIVE TURNOVER
+BETAmt=(GAMA-ALFA2)/ALFA2
+plot(BETAmt)
+
+## BETA EFECTIVE TURNOVER
+BETAmg=(GAMA-ALFA2)/GAMA
+plot(BETAmg)
+
+
+writeRaster(ALFA,"ALFA",overwrite=TRUE)
+writeRaster(BETAm,"BETAm.tif",overwrite=TRUE)
+writeRaster(BETAa,"BETAa.tif",overwrite=TRUE)
+writeRaster(BETAmg,"BETAmg.tif",overwrite=TRUE)
+
+# #### 5. VISUALIZACION GEOGRAFICA  RECAMBIO  -----------------------------
 
 #selccionar punto de area de trabajo 
 # lat = c(extent@ymin,extent@ymax)
@@ -346,13 +358,13 @@ for (l in 1:n) {
 
 
 
-# ### 5. ORDENACION -------------------------------------------------------
+# ### 6. ORDENACION -------------------------------------------------------
 # DO ORDENATION
 sol <- metaMDS(DF, distfun = betadiver, distance = "sim", k=2,  trymax=100)
 sol <- metaMDS(distancia, k=2,  trymax=100)
 
  plot(sol,display = c("species"), choices = c(1, 2))
-# ##### 5.1 HACER MATRIZ DE COLOR -----------------------------------------
+# ##### 6.1 HACER MATRIZ DE COLOR -----------------------------------------
 # upper left: red - upper right: blue
 # lower left: yellow - lower right: green
 
@@ -480,7 +492,7 @@ names(rgb2)=c("pixel_value", names(rgb2)[-1])
 writeRaster(grilla2,"MDS",overwrite=TRUE, format="HFA",datatype="INT4S")
 write.table(rgb2,"rgb_MDS.clr",sep=" ", row.names=F)
 
-# #### 5. CLUSTER ANALYSIS ------------------------------------------------------
+# #### 7. CLUSTER ANALYSIS ------------------------------------------------------
 
 
 metodos=c("average","single" , "complete","ward","weighted")
@@ -545,7 +557,7 @@ coph8 <- cor(cophenetic(CLUSTER8), DISTAN)
 coph9 <- cor(cophenetic(CLUSTER9), DISTAN) ### dimensiones incompatibles
 
 
-# ##### 6. NUMERO DE GRUPOS --------------------------------------------------
+# ##### 8. NUMERO DE GRUPOS --------------------------------------------------
 
 
 ### 1 particion
@@ -598,7 +610,7 @@ for (g in 1:(length(CLUSTERS))){
 
 
 
-# ############  7. GRAFICA DE RESULTADOS ----------------------------------
+# ############  9. GRAFICA DE RESULTADOS ----------------------------------
 
 
 # ####para avarage y ward cortes sucesivos --------------------------------
@@ -607,15 +619,15 @@ LEVEL1=unique(EVALUACION1[,1:2])
 DF_FINAL=as.data.frame(as.numeric(celdas))
 row.names(DF_FINAL)=celdas
 grilla3=mask(grilla,mascara)
-ngrupos=as.numeric(as.character(LEVEL1[which(LEVEL1$nombre==CLUSTERS[4]),2]))
+ngrupos=as.numeric(as.character(LEVEL1[which(LEVEL1$nombre==CLUSTERS[4]),2])) ## se tomo el obtimo de ward (CLUSTER[4]), por ser el minimo de los optimos 
 
-for ( p in c(1,4)){
+for ( p in c(1,4)){ # p=1 para UPGMA
   cluster=get(CLUSTERS[p])
   cluster$height=sort(cluster$height)
   nombre=cluster$method
   
   pdf(file=paste(nombre,"pdf",sep="."))
-  for (t in 2:ngrupos){
+  for (t in 2:ngrupos){                #c(80,100,500)){ cambiar esto asi  si se quiere solo cierto corte  eg, 80,100,500    
     finalcuts=as.data.frame(cutree(cluster,k=t))
     names(finalcuts)=c("group")
     
@@ -628,7 +640,7 @@ for ( p in c(1,4)){
     titulo=paste(nombre,"1",t,sep="_")
     plot(temp,col=rev(col.br(2*max(finalcuts))),main=titulo,ext=extent(colombia))
     plot(colombia,add=T)
-    #writeRaster(temp,paste(titulo,"tif",sep="."), overwrite=TRUE)
+    writeRaster(temp,paste(titulo,"tif",sep="."), overwrite=TRUE)
     
     var=names(DF_FINAL)
     nomevar=c(var[-length(var)],titulo)
@@ -731,12 +743,24 @@ PlotOnStaticMap(grilla2,col=rev(col.br(10)),add=T,)
 
 
 
-# ############  8. CONVERTIR A POLIGONOS ----------------------------------
+# ############  10. CONVERTIR A POLIGONOS ----------------------------------
 
 setwd("~/GBIF3/BETA")
-rasterto=raster("average_1_47.tif")
+rasterto=raster("average_1_500.tif")
 poligon=rasterToPolygons(rasterto)
 setwd("~/GBIF3/BETA/ELEGIDOS")
-writePolyShape(poligon, "prueba47",  factor2char = TRUE, max_nchar=254)
+writePolyShape(poligon, "prueba500",  factor2char = TRUE, max_nchar=254)
 
 
+############## SI PLOTEAMOS POLIGOMOS
+
+
+
+# si OROBIOMA es shp
+tmp$clase=0
+
+for (i in DF$ID){
+  tmp$clase[tmp$Unit_ID==i]=DF$V1952[DF$ID==i]
+}
+
+spplot(tmp,zcol="clase")
