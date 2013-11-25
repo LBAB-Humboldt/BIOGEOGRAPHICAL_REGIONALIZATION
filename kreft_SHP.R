@@ -15,23 +15,27 @@ library("cluster")
 library("ape")
 library("phangorn")
 library(rgdal)
-
+library(svGUI)
+library("svDialogs")
 
 # #### 0. DEFINIR RUTAS Y FUNCIONES ---------------------------------------------------
 
 
-ruta_modelos="C:/Users/GIC 9/Documents/GBIF3/MODELOS"
-ruta_salida="~/GBIF3/BETA"
+ruta_modelos<-(dlgDir(default = getwd(), title="ESPECIFIQUE LA RUTA DE LOS MODELOS")$res)
+#"C:/Users/GIC 9/Documents/GBIF3/MODELOS"
+ruta_elegidos<-(dlgDir(default = getwd(), title="ESPECIFIQUE LA RUTA DE MODELOS VERIFICADOS")$res)
+ruta_salida<-(dlgDir(default = getwd(), title="ESPECIFIQUE LA RUTA DE LOS RESULTADOS")$res)
+#"~/GBIF3/BETA"
 
 ### FUNCIONES
 
-grafica_recambio=function(grilla,mascara,distancia,xy){
+grafica_recambio=function(grilla,mascara,distancia2,xy1){
   # ver el area de estudio
   grilla2=mask(grilla,mascara)
   # selccionar celda
   celda=cellFromXY(grilla2,as.numeric(xy1))
-  columna=distancia[,which(colnames(distancia)==as.character(celda))]
-  colum=as.data.frame(cbind(as.numeric(row.names(distancia)),columna))
+  columna=distancia2[,which(colnames(distancia2)==as.character(celda))]
+  colum=as.data.frame(cbind(as.numeric(row.names(distancia2)),columna))
   if(ncol(colum)==2){  
     names(colum)=c("id","dist")
     valores=grilla2[values(grilla2)%in%colum[,1]] 
@@ -39,16 +43,47 @@ grafica_recambio=function(grilla,mascara,distancia,xy){
       grilla2[j]=colum[which(colum[,1]==j),2]
     }
     grilla2[which(values(grilla2)>=2)]=NA
-    xy=as.data.frame(xy)
+    xy=as.data.frame(xy1)
     names(xy)=c("x","y")
     coordinates(xy)=~x+y
-    resultados=c(grilla2,xy) 
+    resultados=c(grilla2,xy1) 
     return(resultados)}
 } 
+
+grafica_recambio_shp=function(mascara,distancia,xy1){
+  # ver el area de estudio
+  mascara2=mascara
+  mascara2$recambio=as.numeric(NA)
+  # selccionar celda
+  xy1=SpatialPoints(xy1)
+  celda=over(xy1,mascara2)$ID
+  columna=distancia[,which(colnames(distancia)==as.character(celda))]
+  colum=as.data.frame(cbind(as.numeric(row.names(distancia)),columna))
+  if(ncol(colum)==2){  
+    names(colum)=c("id","dist")
+     valores=colum$id
+    for (j in valores){
+      mascara2$recambio[mascara2$ID==j]=colum$dist[colum$id==j]
+      }
+  mascara2$recambio=as.numeric(mascara2$recambio)
+  }
+  plot.new()
+  spplot(mascara2,zcol="recambio")
+  plot(xy1, add=T, col="red")
+  resultados=c(mascara2,xy1) 
+  return(resultados)} 
 
 ESPECIES=function(xy){
   xy=t(as.matrix(xy))
   celda=cellFromXY(grilla2,as.numeric(xy))
+  fila=DF2[which(row.names(DF2)==as.character(celda)),]
+  sp=fila[,which(colSums(fila)!=0)]
+  return(colnames(sp))
+}
+
+ESPECIES_shp=function(xy){
+  xy=SpatialPoints(xy)
+  celda=over(xy,mascara2)$ID
   fila=DF[which(row.names(DF)==as.character(celda)),]
   sp=fila[,which(colSums(fila)!=0)]
   return(colnames(sp))
@@ -117,21 +152,19 @@ grup=function(c,eva){
   return(RMSE)
 }
 
-
-
 # ### 1. AREA DE ESTUDIO --------------------------------------------------
 
-#MASCARAS # preuba con rshp de regiones 
-colombia=readShapePoly("C:/Users/GIC 9/Documents/cartografia_IAvH/Regiones Naturales/RegionFis_Col_WGS84.shp")
-paramos=colombia
-# paramos=readShapePoly("C:/Users/GIC 9/Documents/VACIOS DE INFROMACION/INFO_GEO/paramos_atlas_2012_10jul_Pro.shp")
-# mascara=readShapePoly("C:/Users/GIC 9/Documents/PARAMOS/SELECCION2/VACIOS/INFO_GEO/orobioma_alto.shp") # cambiar por colombia
-mascara=paramos ### define para que area se va ha realizar el analisis
+#MASCARAS # 
+cat("seleccione .shp del area de estudio")
+mascara=readShapePoly(file.choose()) ### define para que area se va ha realizar el analisis
 mascara$ID=1:nrow(mascara)
-extent=extent(colombia)
+extent=extent(mascara)
+
 #area de estucio
-orobioma=raster("C:/Users/GIC 9/Google Drive/Scripts & Bdatos/predictors/alt.asc") 
-factor=10
+cat("seleccione raster de area de estudio")
+orobioma=raster(file.choose())#"C:/SIG/CLMATCAS COL/CLMATCAS COL/bio1_col.asc") 
+
+factor=10 #derfine nivel de agregacion 
 aoi=aggregate(orobioma,factor)
 aoi=mask(aoi,mascara)
 
@@ -147,12 +180,10 @@ grilla[1:ncell(grilla)]<-1:ncell(grilla)
 # ### 2. ESAMBLE DE MODELOS -----------------------------------------------
 
 setwd(ruta_modelos)
-MODELOS<-stack(list.files(pattern="*10p_cut.grd$")) ## para la prueba tome solo los 10 priemros modelos
+MODELOS<-stack(list.files(pattern="*10p_cut.tif$")) ## para la prueba tome solo los 10 priemros modelos
 #ojo esto es olo par ala prueba
-MODELOS=MODELOS[[1:10]]
 
-
-nombres=list.files(pattern="*10p_cut.grd$")
+nombres=list.files(pattern="*10p_cut.tif$")
 nombres=as.data.frame(strsplit(nombres,"_"))
 nombres=as.data.frame(t(nombres))
 nombres2=paste(nombres$V1,nombres$V2,sep="_")
@@ -164,31 +195,18 @@ MODELOS=mask(MODELOS,mascara)
 #adjuntar modelos depurados 
 
 
-MODELOS2=MODELOS
+
 mascara2=MODELOS[[1]]
-##MAGNOLIAS
-setwd("~/MAGNOLIAS/MODELOS/ELEGIDOS")
-MAGNOLIAS=list.files(pattern="*.tif$")
+##MAGNOLIAS y YUCA ARROZ
+setwd(ruta_elegidos)
+elegidos=list.files(pattern=".tif$")
+# stack  sobreponer capas solo para raster
 
-for (i in 1:length(MAGNOLIAS)){
-  especie=raster(MAGNOLIAS[[i]])
+for (i in 2:length(elegidos)){
+  especie=raster(elegidos[[i]])
   capa=resample(especie,mascara2,method="ngb")
-  MODELOS2=addLayer(MODELOS2,capa)
+  MODELOS=addLayer(MODELOS,capa)
 }
-
-
-#YUCA ARROZ
-setwd("~/Politica_Arroz_Yuca/Datos_Yuca_Arroz/CORRIDA2/GAP_ANALYSIS")
-YUCAS=list.files(pattern="*_ess.tif$")
-YUCA_ARROZ<-stack(YUCAS)# stack  sobreponer capas solo para raster
-
-for (i in 1:length(YUCAS)){
-  especie=YUCA_ARROZ[[i]]
-  capa=resample(especie,mascara2,method="ngb")
-  MODELOS2=addLayer(MODELOS2,capa)
-}
-
-
 
 
 nombres3=names(MODELOS2[[2409:2432]])
@@ -200,19 +218,13 @@ nombrestodos=c(nombres2,nombres3)
 
 ##UICN 
 
-grilla=aoi
-names(grilla)="grilla"
-grilla[1:ncell(grilla)]<-1:ncell(grilla)
-
-
-
-
 # #### 3. MATRIZ DE DISTANCIAS --------------------------------------------
 setwd(ruta_salida)
 
 
 #GENERAR TABLA 
 
+### PARA SHP
 
 ## NOTA , DF se puede hacer aca con la siguiente linea , el rollo es que demore mucho ,
 #si desisten  jorge lo corre 
@@ -233,19 +245,22 @@ head(DF)
 vacias=c(which(rowMeans(DF[,2:ncol(DF)])==0)) # solo estamos limpiando vacias , se puede menos de 5 (kreft)
 if (length(vacias)==0){ DF=DF} else {DF=DF[-vacias,]}
 
-celdas=DF[,1] 
-names(DF)=nombrestodos
+celdas=DF[,1]
+nombres2=c("ID", nombrestodos)
+names(DF)=nombres2
 
 #Matriz de distancias para shp
-#DISTAN=vegdist(DF[,2:ncol(DF)],"jaccard")
-DISTAN=betadiver(DF, "sim")
-
+DISTAN=betadiver(DF[,-1], "sim")
+distancia=as.matrix(DISTAN)
+### PARA RASTER 
+# es necesario sacar las dos matrices y las dos distancias
 
 #matriz de distancias para raster
-DF2=as.data.frame(matrix(NA,29547,1)) # cambiar el numero de filas 
 length((getValues(aoi)))
+DF2=as.data.frame(matrix(NA,length((getValues(aoi))),1)) # cambiar el numero de filas 
+DF2[,1]=getValues(grilla)
 
-for(i in 1:nlayers(MODELOS2)){
+for(i in 2:nlayers(MODELOS2)){
   DF2[,i+1]=NA
   print(i)  
   agragado=aggregate(MODELOS2[[i]],factor)
@@ -257,20 +272,26 @@ for(i in 1:nlayers(MODELOS2)){
   DF2[,i]=VALORES
 }
 
+
 DF2=DF2[,1:(ncol(DF2)-1)]
 
 
 
-DF2=na.omit(DF2)
+DF2=na.omit(DF2[,2:ncol(DF2)])
 head(DF2)
 celdas=row.names(DF2) 
 
+#remover filas vacias
+vacias2=c(which(rowMeans(DF2[,2:ncol(DF2)])==0)) # solo estamos limpiando vacias , se puede menos de 5 (kreft)
+if (length(vacias2)==0){ DF2=DF2} else {DF2=DF2[-vacias2,]}
 
-DISTAN2=betadiver(DF2, "sim")
-distancia=as.matrix(DISTAN2)
+names(DF2)=nombres2
 
 
- de# ##########. 3 PATRONES DIVERSIDAD ALFA, GAMA, BETA ----------------------
+DISTAN2=betadiver(DF2[,2:ncol(DF2)], "sim")
+distancia2=as.matrix(DISTAN2)
+
+# ##########. 4 PATRONES DIVERSIDAD ALFA, GAMA, BETA ----------------------
 
 
 ##### ALFA 
@@ -312,27 +333,53 @@ BETAmg=(GAMA-ALFA)/GAMA
 plot(BETAmg)
 
 
-writeRaster(ALFA,"ALFA",overwrite=TRUE)
+writeRaster(ALFA,"ALFAmean",overwrite=TRUE)
 writeRaster(BETAm,"BETAm.tif",overwrite=TRUE)
 writeRaster(BETAa,"BETAa.tif",overwrite=TRUE)
 writeRaster(BETAmg,"BETAmg.tif",overwrite=TRUE)
 
 
 ##PARA SACAR PATRONES POR POLIGONOS
-BETA.P=extract(BETAa, mascara,df=T,fun=mean)
+# se remuestrea la media de la diversidad beta para los pixeles presentes en cada poligono,
+# al intentar hacerlo por poligonos directamente tenemso el problema de como definir  alfa y gama
+# de todas formas creo que la mejor  forma de mostrar eso creo que lo mejor es por pixel 
 
-# si OROBIOMA es shp
-tmp=mascara
-tmp$GAMA=0
+patrones.shp=mascara
 
-for (i in BETA.P$ID){
-  tmp$GAMA[tmp$ID==i]=GAMA.P$layer[GAMA.P$ID==i]
+BETAa.P=extract(BETAa, mascara,df=T,fun=mean,na.rm=TRUE)
+BETAm.P=extract(BETAm, mascara,df=T,fun=mean,na.rm=TRUE)
+BETAmg.P=extract(BETAmg, mascara,df=T,fun=mean, na.rm=TRUE)
+BETAmt.P=extract(BETAmt, mascara,df=T,fun=mean, na.rm=TRUE)
+
+
+### para graficar
+patrones.shp$aditiva=NA
+patrones.shp$multiplicativa=NA
+patrones.shp$efective1=NA
+patrones.shp$efective2=NA
+
+for (i in patrones.shp$ID){
+  #aditiva
+  patrones.shp$aditiva[patrones.shp$ID==i]=BETAa.P$layer[BETAa.P$ID==i]
+  #multiplicativa
+  patrones.shp$multiplicativa[patrones.shp$ID==i]=BETAm.P$layer[BETAm.P$ID==i]
+  #efective turnover1
+  patrones.shp$efective1[patrones.shp$ID==i]=BETAmg.P$layer[BETAmg.P$ID==i]
+  #efective trunover 2
+  patrones.shp$efective2[patrones.shp$ID==i]=BETAmt.P$layer[BETAmt.P$ID==i]
+  
 }
 
-spplot(tmp,zcol="clase")
+
+spplot(patrones.shp, zcol="aditiva", main="aditiva")
+spplot(patrones.shp, zcol="multiplicativa", main="multiplicativa")
+spplot(patrones.shp, zcol="efective1", main="efective1")
+spplot(patrones.shp, zcol="efective2", main="efective2")
 
 
+## Guardar el resultado de los patrones por poligono
 
+writePolyShape(patrones.shp, "patrones.shp", factor2char = TRUE, max_nchar=254)
 
 # #### 5. VISUALIZACION GEOGRAFICA  RECAMBIO  -----------------------------
 
@@ -346,9 +393,41 @@ spplot(tmp,zcol="clase")
 #tmp <- PlotPolysOnStaticMap(MyMap, polys=paramo);
 #dev.off()
 
+
+## PARA  SHP
+plot.new()
+plot(extent,main="SELECCIONE POLIGONO DE INTERES")
+plot(mascara,add=T)
+cat("selcciones el nuemro de areas para las cuales desea ver su distancia")
+
+n=5
+xy=locator(n=n)
+#xy=as.data.frame((xy))
+dev.off()
+
+#graficas de recambio
+for (l in 1:n) {
+  print(l)
+  xy1=cbind(xy[[1]][l],xy[[2]][l])
+  RECAMBIO=grafica_recambio_shp(mascara,distancia,xy1)
+  prueba=RECAMBIO[[1]]
+  spplot(RECAMBIO[[1]],zcol="recambio") # grafica si lo haces uno por uno pero no se porque no grafica en el for  igual el shp queda guardado
+  #plot(RECAMBIO[[2]],col="red")
+  writePolyShape(prueba, paste0("dist",l,".shp"), factor2char = TRUE, max_nchar=254)
+  
+  ##especies presentes en poligono seleccionado 
+  sp_en_celda=ESPECIES_shp(xy1)
+  print(sp_en_celda)
+}
+
+
+
+
+### PARA RASTER
+
 plot.new()
 plot(extent,main="SELECCIONE AREA DE INTERES")
-plot(orobioma,add=T)
+plot(grilla2,add=T)
 cat("selcciones el nuemro de areas para las cuales desea ver su distancia")
 
 n=5
@@ -359,9 +438,9 @@ dev.off()
 #graficas de recambio
 for (l in 1:n) {
   xy1=cbind(xy[[1]][l],xy[[2]][l])
-  RECAMBIO=grafica_recambio(grilla,mascara,distancia,xy1)
+  RECAMBIO=grafica_recambio(grilla,mascara,distancia2,xy1)
   plot(RECAMBIO[[1]],col=c("red",rev(col.br(10))))
-  plot(RECAMBIO[[2]],add=T,col="red")
+  #plot(RECAMBIO[[2]],add=T,col="red")
   writeRaster(RECAMBIO[[1]],paste("dist",l),overwrite=TRUE, format="GTiff")
   
   grilla2=mask(grilla,mascara)
@@ -370,10 +449,8 @@ for (l in 1:n) {
   print(sp_en_celda)
 }
 
-
-
 # ### 6. ORDENACION -------------------------------------------------------
-# DO ORDENATION
+# CARO NO ESTAMOS HACIENDO ESTO  POR QUE REQUIERE MUCHO COMPUTO 
 sol <- metaMDS(DF, distfun = betadiver, distance = "sim", k=2,  trymax=100)
 sol <- metaMDS(distancia, k=2,  trymax=100)
 
@@ -510,6 +587,8 @@ write.table(rgb2,"rgb_MDS.clr",sep=" ", row.names=F)
 
 
 metodos=c("average","single" , "complete","ward","weighted")
+######### TODO ESTA SOLO PARA SHP
+
 
 ## cluster con los diferentes metodos
 #CLUSTER1=agnes(DISTAN, diss = T, method ="average", keep.diss = F, keep.data = F)
@@ -599,173 +678,74 @@ for (g in 1:(length(CLUSTERS))){
   
 }
 
+#######CARO ESTA METRICA NO LA ESTAMOS USANDO POR ESO LA COMENTE
 
-
-  EVALUACION2=NULL
-
-
-for (g in 1:(length(CLUSTERS))){
-  evaluacion2=NULL
-  clust=get(CLUSTERS[g])
-  evaluacion2=EVA2(clust)
-  nombre2=rep(CLUSTERS[g],nrow(evaluacion2))
-  eva2=evaluacion2
-  b=length(unique(eva2$grupos))
-  optimo2=optimize(grup,c(2,b),eva2,maximum = FALSE)
-  c2=floor(optimo2[[1]])
-  opt2=as.character(c2)
-  plot(eva2$metrica~eva2$grupos, main=clust$method, sub=opt2, xlab="N grupos",ylab="% endemismo")
-  legend("center",opt2)
-  abline(lm(eva2$metrica[1:c]~eva2$grupos[1:c]),col="red")
-  abline(lm(eva2$metrica[(c+1):b]~eva2$grupos[(c+1):b]),col="red")
-  eva2=cbind(nombre2,opt2,evaluacion2)
-  EVALUACION2=rbind(EVALUACION2,eva2)
-}
-
-
+#   EVALUACION2=NULL
+# 
+# 
+# for (g in 1:(length(CLUSTERS))){
+#   evaluacion2=NULL
+#   clust=get(CLUSTERS[g])
+#   evaluacion2=EVA2(clust)
+#   nombre2=rep(CLUSTERS[g],nrow(evaluacion2))
+#   eva2=evaluacion2
+#   b=length(unique(eva2$grupos))
+#   optimo2=optimize(grup,c(2,b),eva2,maximum = FALSE)
+#   c2=floor(optimo2[[1]])
+#   opt2=as.character(c2)
+#   plot(eva2$metrica~eva2$grupos, main=clust$method, sub=opt2, xlab="N grupos",ylab="% endemismo")
+#   legend("center",opt2)
+#   abline(lm(eva2$metrica[1:c]~eva2$grupos[1:c]),col="red")
+#   abline(lm(eva2$metrica[(c+1):b]~eva2$grupos[(c+1):b]),col="red")
+#   eva2=cbind(nombre2,opt2,evaluacion2)
+#   EVALUACION2=rbind(EVALUACION2,eva2)
+# }
+# 
+# 
 
 # ############  9. GRAFICA DE RESULTADOS ----------------------------------
 
 
 # ####para avarage y ward cortes sucesivos --------------------------------
-
+#revisa los coeficientes y haz los dos mejores, normalmente son UPGMA (1) y Ward(4) 
 LEVEL1=unique(EVALUACION1[,1:2])
-DF_FINAL=as.data.frame(as.numeric(celdas))
-row.names(DF_FINAL)=celdas
-grilla3=mask(grilla,mascara)
-ngrupos=as.numeric(as.character(LEVEL1[which(LEVEL1$nombre==CLUSTERS[4]),2])) ## se tomo el obtimo de ward (CLUSTER[4]), por ser el minimo de los optimos 
+DF_FINAL=as.data.frame(DF[,1])
+row.names(DF_FINAL)=DF[,1]
 
-for ( p in c(1,4)){ # p=1 para UPGMA
+ngrupos=as.numeric(as.character(LEVEL1[which(LEVEL1$nombre==CLUSTERS[4]),2])) ## se tomo el obtimo de ward (CLUSTER[4]), por ser el minimo de los optimos 
+# tamebin puedes tomar el optimo de el mejor cluster y hacer cortes sucesivos hasta ese corte
+tmp=mascara
+for ( p in c(1,4)){ # p=1 para UPGMA 4 para ward, 
   cluster=get(CLUSTERS[p])
   cluster$height=sort(cluster$height)
   nombre=cluster$method
   
-  pdf(file=paste(nombre,"pdf",sep="."))
+  
+  #pdf(file=paste(nombre,"pdf",sep="."))
   for (t in 2:ngrupos){                #c(80,100,500)){ cambiar esto asi  si se quiere solo cierto corte  eg, 80,100,500    
     finalcuts=as.data.frame(cutree(cluster,k=t))
     names(finalcuts)=c("group")
     
-    DF_FINAL$grupo=NA
-    DF_FINAL$grupo[row.names(DF_FINAL)==row.names(finalcuts)]=finalcuts$group[row.names(DF_FINAL)==row.names(finalcuts)]
+    DF_FINAL[,ncol(DF_FINAL)+1]=NA
+    DF_FINAL[row.names(DF_FINAL)==row.names(finalcuts),ncol(DF_FINAL)]=finalcuts$group[row.names(finalcuts)==row.names(DF_FINAL)]
     
-    temp=grilla3
-    temp[as.integer(row.names(DF_FINAL))]<-DF_FINAL[,ncol(DF_FINAL)] 
-    temp[temp>max(finalcuts)]=NA# con raster
-    titulo=paste(nombre,"1",t,sep="_")
-    plot(temp,col=rev(col.br(2*max(finalcuts))),main=titulo,ext=extent(colombia))
-    plot(colombia,add=T)
-    writeRaster(temp,paste(titulo,"tif",sep="."), overwrite=TRUE)
     
-    var=names(DF_FINAL)
-    nomevar=c(var[-length(var)],titulo)
-    names(DF_FINAL)=nomevar
+    tmp@data[,ncol(tmp@data)+1]=NA
+    filas2=(DF_FINAL[,1])
+    for (i in filas2){
+      tmp@data[tmp@data$ID==i, ncol(tmp@data)]=DF_FINAL[DF_FINAL[,1]==i,ncol(DF_FINAL)]
+    }
+    
+    titulo=paste0(nombre,t)
+    names(tmp)=c(names(tmp)[-ncol(tmp)],titulo)
   }
-  dev.off()
+  #dev.off()
 }
 
-
-# #### con Kmeans ---------------------------------------------------------
-pdf(file=paste(nombre,"pdf",sep="."))
-for ( t in 2:ngrupos){
-  CLUSTER10=kmeans(DF,t)
-  DF_FINAL=as.data.frame(CLUSTER10$cluster)
-  temp=grilla3
-  temp[as.integer(row.names(DF_FINAL))]<-DF_FINAL[,ncol(DF_FINAL)] 
-  temp[temp>t]=NA# con raster
-  titulo=paste("kmeans", t,sep="_")
-  plot(temp,col=rev(col.br(2*max(finalcuts))),main=titulo,ext=extent(colombia))
-  plot(colombia,add=T)
-  writeRaster(temp,paste(titulo,"tif",sep="."), overwrite=TRUE)
-  
-}
-dev.off()
-
-# ####para todas los dos niveles de evaluacion ----------------------------
+writePolyShape(tmp, "grupos.shp", factor2char = TRUE, max_nchar=254)
 
 
-LEVEL1=unique(EVALUACION1[,1:2])
-DF_FINAL=as.data.frame(as.numeric(celdas))
-row.names(DF_FINAL)=celdas
-grilla3=mask(grilla,mascara)
-
-for ( p in 1:(length(CLUSTERS))){
-  cluster=get(CLUSTERS[p])
-  cluster$height=sort(cluster$height)
-  nombre=cluster$method
-  
-  ngrupos=as.numeric(as.character(LEVEL1[which(LEVEL1$nombre==CLUSTERS[p]),2]))
-  finalcuts=as.data.frame(cutree(cluster,k=5))
-  names(finalcuts)=c("group")
-  
-  DF_FINAL$grupo=NA
-  DF_FINAL$grupo[row.names(DF_FINAL)==row.names(finalcuts)]=finalcuts$group[row.names(DF_FINAL)==row.names(finalcuts)]
-  
-  temp=grilla3
-  temp[as.integer(row.names(DF_FINAL))]<-DF_FINAL[,ncol(DF_FINAL)] 
-  temp[temp>max(2)]=NA# con raster
-  titulo=paste(nombre,"1",ngrupos,sep="_")
-  plot(temp,col=rev(col.br(2*max(finalcuts))),main=titulo,ext=extent(colombia))
-  plot(colombia,add=T)
-  writeRaster(temp,paste(titulo,"tif",sep="."), overwrite=TRUE)
-  
-  var=names(DF_FINAL)
-  nomevar=c(var[-length(var)],titulo)
-  names(DF_FINAL)=nomevar
-}
-
-LEVEL2=unique(EVALUACION2[,1:2])
-DF_FINAL=celdas
-grilla4=mask(grilla,mascara)
-
-for ( p in 1:(length(CLUSTERS))){
-  cluster=get(CLUSTERS[p])
-  cluster$height=sort(cluster$height)
-  nombre=cluster$method
-  
-  ngrupos=as.numeric(as.character(LEVEL2[which(LEVEL2$nombre==CLUSTERS[p]),2]))
-  finalcuts=as.data.frame(cutree(cluster,k=ngrupos))
-  names(finalcuts)=c("group")
-  
-  DF_FINAL$grupo=NA
-  DF_FINAL$grupo[row.names(DF_FINAL)==row.names(finalcuts)]=finalcuts$group[row.names(DF_FINAL)==row.names(finalcuts)]
-  
-  temp=grilla4
-  temp[as.integer(row.names(DF_FINAL))]<-DF_FINAL[,ncol(DF_FINAL)] 
-  temp[temp>max(finalcuts)]=NA# con raster
-  titulo=paste(nombre,"2",ngrupos,sep="_")
-  plot(temp,col=rev(col.br(2*max(finalcuts))),main=titulo,ext=extent(colombia))
-  plot(colombia,add=T)
-  writeRaster(temp,paste(titulo,"tif",sep="."), overwrite=TRUE)
-  
-  var=names(DF_FINAL)
-  nomevar=c(var[-length(var)],titulo)
-  names(DF_FINAL)=nomevar
-}
-
-
-
-
-
-
-MyMap <- GetMap(center=center, zoom=zoom,maptype="satellite")
-,
-destfile = "MyTile1.png",maptype="mapmaker-hybrid");
-
-tmp <- PlotOnStaticMap(MyMap, lat = c(40.702147,40.711614,40.718217), lon = c(-74.015794,-74.012318,-73.998284), destfile = "MyTile1.png", cex=1.5,pch=20,col=c('red', 'blue', 'green'), add=FALSE);
-tmp <- PlotOnStaticMap(MyMap, lat = lat, lon = lon, destfile = "MyTile1.png", cex=1.5,pch=20,col=c('red', 'blue', 'green'), add=T);
-PlotOnStaticMap(grilla2,col=rev(col.br(10)),add=T,)
-
-
-
-# ############  10. CONVERTIR A POLIGONOS ----------------------------------
-
-setwd("~/GBIF3/BETA")
-rasterto=raster("average_1_500.tif")
-poligon=rasterToPolygons(rasterto)
-setwd("~/GBIF3/BETA/ELEGIDOS")
-writePolyShape(poligon, "prueba500",  factor2char = TRUE, max_nchar=254)
-
-
+######################## HASTA ACA !!!!!!!!!
 ############## SI PLOTEAMOS POLIGOMOS
 
 
